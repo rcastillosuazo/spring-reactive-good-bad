@@ -10,7 +10,7 @@ import reactor.core.publisher.Flux;
 import java.time.Duration;
 
 @SpringBootTest
-class PerformanceTest {
+class PerformanceWebfluxTest {
 
     final static int requests = 600;
 
@@ -124,8 +124,6 @@ class PerformanceTest {
 
         long start = System.currentTimeMillis();
 
-        // request altos degradan los tiempos de respuesta
-        // vs uso correcto con real_concurrency_correct_endpoint
         Flux.range(1, requests)
                 .flatMap(i ->
                         client.get()

@@ -4,6 +4,8 @@ Este repositorio contiene ejemplos prácticos y ejecutables de programación rea
 
 El objetivo es educativo y técnico: mostrar casos que compilan, ejecutan y pasan QA, pero que fallan bajo concurrencia o carga, comparándolos con sus implementaciones correctas.
 
+Se recomienda probar cambiando los tiempos de espera (WAITIME de ExternalApiClient), requests o concurrency de los test para visualizar comportamiento en distintos escenarios.
+
 
 STACK TECNOLÓGICO
 
@@ -187,6 +189,241 @@ Dependencias       -> flatMap
 Paralelismo real   -> zip
 Código bloqueante  -> boundedElastic
 Validar performance-> tests concurrentes
+
+## 🧵 Reactivo vs MVC + Virtual Threads (Java 21)
+
+Esta sección documenta **casos reales y comparables** entre:
+
+* **Spring WebFlux (reactivo, no bloqueante)**
+* **Spring MVC + Virtual Threads (Java 21)**
+
+El objetivo es mostrar **cuándo ambos funcionan bien**, **cuándo se degradan**, y **cuándo WebFlux sigue siendo necesario incluso con virtual threads**.
+
+---
+
+## 🧠 Contexto general
+
+Desde Java 21, **Virtual Threads** permiten manejar miles de operaciones bloqueantes con bajo costo, lo que ha reabierto el debate:
+
+> ¿Sigue siendo necesario WebFlux?
+
+**Respuesta corta:**
+👉 *Sí, pero solo en ciertos escenarios.*
+
+Este repositorio muestra esos escenarios con código ejecutable y tests comparables.
+
+---
+
+## 📦 Componentes involucrados
+
+* **Controller**
+
+    * Endpoints MVC y WebFlux
+* **Service**
+
+    * Lógica fan-out, joins y llamadas externas
+* **External Client**
+
+    * Simula servicios lentos (`sleep`)
+* **Tests**
+
+    * Funcionales
+    * De carga / concurrencia
+
+---
+
+## 🔥 Escenario 1: Fan-out (1 request → N llamadas externas)
+
+### Qué es fan-out
+
+Un request entrante dispara **múltiples llamadas externas en paralelo**:
+
+```
+Request
+   ├─ Call A
+   ├─ Call B
+   ├─ Call C
+   ├─ Call D
+   └─ Call E
+```
+
+Este patrón es **muy común** en:
+
+* APIs Gateway
+* BFF
+* Agregadores de microservicios
+
+---
+
+## ❌ Caso 1: MVC fan-out incorrecto
+
+**Tecnología**
+
+* Spring MVC
+* `CompletableFuture.supplyAsync()`
+* ForkJoinPool común
+
+**Problema**
+
+* Bloquea threads
+* Pool compartido
+* Escala mal bajo carga
+
+```java
+CompletableFuture.supplyAsync(() -> client.callSlowServiceSleep(...))
+```
+
+### Resultado
+
+* Tiempo de respuesta crece rápidamente
+* Saturación del pool
+* No hay back-pressure
+
+---
+
+## ✅ Caso 2: MVC fan-out CORRECTO con Virtual Threads
+
+**Tecnología**
+
+* Spring MVC
+* Java 21 Virtual Threads
+* Executor dedicado
+
+```java
+ExecutorService vtExecutor =
+    Executors.newVirtualThreadPerTaskExecutor();
+```
+
+### Por qué funciona
+
+✔ Cada llamada usa un virtual thread
+✔ No bloquea threads de plataforma
+✔ Escala bien con I/O bloqueante
+✔ Código simple (imperativo)
+
+### Cuándo usarlo
+
+✔ Sistemas MVC existentes
+✔ Integraciones legacy bloqueantes
+✔ Migraciones graduales
+✔ Equipos no reactivos
+
+---
+
+## ⚠️ Límite de Virtual Threads (caso que falla)
+
+Virtual Threads **NO solucionan**:
+
+* Fan-out masivo (N × M llamadas)
+* Streaming continuo
+* Alto churn de requests
+* Back-pressure ausente
+
+Ejemplo:
+
+* 50 requests concurrentes
+* cada una hace fan-out de 5 llamadas
+* Total = 250 llamadas simultáneas
+
+👉 Aquí **WebFlux empieza a ganar**
+
+---
+
+## ⚡ Caso 3: WebFlux fan-out reactivo
+
+**Tecnología**
+
+* Spring WebFlux
+* `Flux.merge`
+* No bloqueante
+
+```java
+Flux.merge(
+    client.callSlowService(...),
+    client.callSlowService(...),
+    client.callSlowService(...)
+)
+```
+
+### Ventajas reales
+
+✔ Back-pressure
+✔ Menor consumo de memoria
+✔ Mejor bajo alta concurrencia
+✔ Ideal para I/O intensivo
+
+### Trade-offs
+
+⚠ Mayor complejidad mental
+⚠ Debug más complejo
+⚠ Requiere stack reactivo completo
+
+---
+
+## 🧪 Tests incluidos
+
+### Tests funcionales
+
+* Verifican respuestas correctas
+* Validan orden cuando corresponde
+
+### Tests de carga
+
+* Simulan concurrencia real
+* Comparan tiempos:
+
+    * MVC incorrecto
+    * MVC + Virtual Threads
+    * WebFlux
+
+Ejemplo:
+
+```java
+Flux.range(1, 50)
+    .flatMap(i ->
+        client.get()
+            .uri("/api/mvc/fanout-fixed?v=req-" + i)
+            .retrieve()
+            .bodyToMono(String.class),
+        20 // concurrencia real
+    )
+    .blockLast();
+```
+
+---
+
+## 📊 Conclusiones clave
+
+| Escenario               | Mejor opción    |
+| ----------------------- | --------------- |
+| MVC legacy              | Virtual Threads |
+| I/O bloqueante moderado | Virtual Threads |
+| Fan-out masivo          | WebFlux         |
+| Streaming               | WebFlux         |
+| Back-pressure requerido | WebFlux         |
+| Simplicidad             | MVC + VT        |
+
+---
+
+## 🧭 Regla práctica para elegir
+
+> **Si puedes expresar tu flujo como una lista de eventos → WebFlux**
+> **Si tu flujo es request/response clásico → Virtual Threads**
+
+---
+
+## 🏁 Resumen ejecutivo
+
+* Virtual Threads **no reemplazan** WebFlux
+* Reducen enormemente la necesidad de usarlo
+* WebFlux sigue siendo clave para:
+
+    * alta concurrencia
+    * fan-out masivo
+    * control fino del flujo
+
+Este repositorio demuestra **cuándo usar cada uno**, con código real y medible.
+
 
 
 OBJETIVO DEL REPOSITORIO

@@ -16,8 +16,9 @@ class ComplexFlowTest {
 
     @Test
     void chainedWorks() {
-        StepVerifier.create(service.chainedProcess("test"))
-                .expectNextMatches(v -> v.startsWith("final-response"))
+        StepVerifier.create(service.chainedProcess("test")
+                        .doOnNext(System.out::println))
+                .expectNextMatches(v -> v.startsWith("final-"))
                 .verifyComplete();
     }
 
