@@ -433,3 +433,6 @@ Este repositorio está pensado para:
 - entrevistas
 - revisión de arquitectura
 - evitar errores comunes en producción
+- probar distintos escenarios para visualizar como se comportan los casos.
+
+Repositorio generado por IA. 
